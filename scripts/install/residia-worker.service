@@ -1,0 +1,12 @@
+[Unit]
+Description=Residia CRM - Worker de Cola de Auditoria y Webhooks
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+Restart=always
+ExecStart=/usr/bin/php /var/www/residia/artisan queue:work --queue=default,auditoria --sleep=3 --tries=3 --max-time=3600
+
+[Install]
+WantedBy=multi-user.target
