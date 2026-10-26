@@ -31,6 +31,7 @@ residia/docs/
 │   ├── 00_matriz_general_de_pendientes_y_roadmap.md    # Matriz inicial de requerimientos
 │   ├── 01_evaluacion_blindaje_y_readiness_ethical_hacking.md # Análisis de vulnerabilidades y hardening
 │   ├── 02_informe_remediacion_y_blindaje_total.md      # Certificado de mitigación de brechas
+│   ├── 03_proximas_fases_y_pendientes_tecnicos.md      # Backlog y pendientes v2.1+ (testing, pagos, SRI, bundles)
 │   └── pendientes_y_hoja_de_ruta_residia.md            # Hoja de ruta 100% completada y cerrada
 └── 08_informes_gerenciales/                            <-- Manuales de usuario y módulos de negocio
     ├── informe_ejecutivo_gerencia_residia.md           # Visión general para el comité de administración
