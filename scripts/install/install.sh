@@ -46,7 +46,8 @@ fi
 
 # 3. Instalación de Dependencias PHP Backend (Composer)
 echo -e "${YELLOW}[3/8] Instalando dependencias de PHP vía Composer...${NC}"
-composer install --no-dev --optimize-autoloader --no-interaction
+composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-req=php+ || \
+composer update --no-dev --optimize-autoloader --no-interaction --ignore-platform-req=php+
 echo -e "${GREEN}✓ Paquetes PHP optimizados para producción.${NC}\n"
 
 # 4. Generación de Claves Criptográficas
@@ -72,18 +73,47 @@ DB_USERNAME=${DB_USERNAME:-postgres}
 
 echo -e "Conectando a PostgreSQL ($DB_HOST:$DB_PORT, Base: $DB_DATABASE, Usuario: $DB_USERNAME)..."
 
+# Helper para ejecutar psql con password o vía sudo -u postgres
+run_psql() {
+    local target_db="$1"
+    local sql_query="$2"
+    if [ -n "$DB_PASSWORD" ]; then
+        if [ -n "$target_db" ]; then
+            PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -d "$target_db" -c "$sql_query"
+        else
+            PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -c "$sql_query"
+        fi
+    else
+        if [ -n "$target_db" ]; then
+            sudo -u postgres psql -d "$target_db" -c "$sql_query" 2>/dev/null || psql -U "$DB_USERNAME" -d "$target_db" -c "$sql_query"
+        else
+            sudo -u postgres psql -c "$sql_query" 2>/dev/null || psql -U "$DB_USERNAME" -c "$sql_query"
+        fi
+    fi
+}
+
+run_psql_file() {
+    local target_db="$1"
+    local file_path="$2"
+    if [ -n "$DB_PASSWORD" ]; then
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -d "$target_db" -f "$file_path"
+    else
+        sudo -u postgres psql -d "$target_db" -f "$file_path" 2>/dev/null || psql -U "$DB_USERNAME" -d "$target_db" -f "$file_path"
+    fi
+}
+
 # Crear la base de datos si no existe
-PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_DATABASE'" | grep -q 1 || \
-PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -c "CREATE DATABASE $DB_DATABASE;"
+run_psql "" "SELECT 1 FROM pg_database WHERE datname = '$DB_DATABASE'" 2>/dev/null | grep -q 1 || \
+run_psql "" "CREATE DATABASE $DB_DATABASE;" || true
 
 # Cargar extensiones requeridas
-PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -d "$DB_DATABASE" -f scripts/install/init_database.sql
+run_psql_file "$DB_DATABASE" "scripts/install/init_database.sql" || true
 
 # Si existe dump maestro de respaldo, restaurarlo; sino, ejecutar migraciones
 DUMP_FILE="database/backups/residia_release_v2_completo.sql"
 if [ -f "$DUMP_FILE" ]; then
     echo -e "Restaurando estructura y datos maestros certificados desde dump: $DUMP_FILE..."
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -d "$DB_DATABASE" -f "$DUMP_FILE" > /dev/null 2>&1 || true
+    run_psql_file "$DB_DATABASE" "$DUMP_FILE" > /dev/null 2>&1 || true
     echo -e "${GREEN}✓ Base de datos restaurada con éxito desde snapshot oficial.${NC}"
 else
     echo -e "Ejecutando migraciones y seeders de Laravel..."
