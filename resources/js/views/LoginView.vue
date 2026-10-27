@@ -20,7 +20,7 @@
             <input 
               v-model="loginInput" 
               type="text" 
-              placeholder="admin@robledal.com o 1799999999" 
+              placeholder="admin@robledal.co o 1799999999" 
               class="form-input" 
               required 
             />
@@ -78,7 +78,7 @@ import { User as UserIcon, Lock, Eye, EyeOff, LogIn, AlertCircle, Loader2, Sun, 
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
 
-const loginInput = ref('admin@robledal.com');
+const loginInput = ref('admin@robledal.co');
 const password = ref('Admin2026.*');
 const mostrarPassword = ref(false);
 const errorMsg = ref('');
