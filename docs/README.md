@@ -34,6 +34,7 @@ residia/docs/
 │   ├── 03_proximas_fases_y_pendientes_tecnicos.md      # Backlog y pendientes v2.1+ (testing, pagos, SRI, bundles)
 │   └── pendientes_y_hoja_de_ruta_residia.md            # Hoja de ruta 100% completada y cerrada
 ├── 08_informes_gerenciales/                            <-- Manuales de usuario y módulos de negocio
+│   ├── resumen_ejecutivo_y_manual_usuario_gerencia.md  # 🌟 Documento Maestro para Gerencia: Resumen y Manual de Usuario
 │   ├── informe_ejecutivo_gerencia_residia.md           # Visión general para el comité de administración
 │   ├── informe_modulo_financiero_alicuotas.md          # Tesorería, emisión masiva y recibos imprimibles
 │   └── informe_portal_residente_mi_hogar.md            # Autoservicio de habitantes, pases QR y alícuotas
