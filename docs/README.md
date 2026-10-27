@@ -39,7 +39,8 @@ residia/docs/
 │   ├── informe_modulo_financiero_alicuotas.md          # Tesorería, emisión masiva y recibos imprimibles
 │   └── informe_portal_residente_mi_hogar.md            # Autoservicio de habitantes, pases QR y alícuotas
 └── 09_despliegue_produccion/                           <-- Manuales de despliegue y puesta en marcha
-    ├── guia_instalacion_paso_a_paso_ubuntu25_php84.md  # Guía paso a paso Ubuntu Server 25 + PHP 8.4
+    ├── guia_limpieza_y_reinicio_base_datos.md          # 🧹 Guía de Limpieza y Reinicio de Datos (Artisan/SQL)
+    ├── guia_instalacion_paso_a_paso_ubuntu25_php84.md  # Guía paso a paso Ubuntu Server 25 + PHP 8.5
     └── manual_despliegue_produccion.md                 # Manual de operaciones y arquitectura cloud
 ```
 
