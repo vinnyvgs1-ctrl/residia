@@ -481,27 +481,29 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in pasesList" :key="p.inv_id">
-                <td>
-                  <div class="font-semibold text-xs text-[var(--text-primary)]">{{ p.inv_visitante_nombre }}</div>
-                  <div class="text-[11px] text-[var(--text-secondary)]">
-                    {{ p.inv_visitante_placa || 'Peatonal' }} · Anfitrión: {{ p.anfitrion }}
-                  </div>
-                </td>
-                <td>
-                  <span class="font-mono text-xs text-[var(--color-primary)] bg-[var(--bg-primary)] px-2 py-1 rounded border border-[var(--border-subtle)]">
-                    {{ p.inv_codigo_token }}
-                  </span>
-                </td>
-                <td>
-                  <div class="text-[11px] text-[var(--text-secondary)]">Hasta: {{ p.inv_valido_hasta }}</div>
-                  <div class="text-[10px] text-[var(--text-muted)]">Usos: {{ p.inv_usos_realizados }} / {{ p.inv_usos_permitidos }}</div>
-                </td>
-                <td>
-                  <span class="tag-status" :class="p.inv_estado === 'ACTIVO' ? 'bg-green-500/20 text-green-400' : 'bg-zinc-500/20 text-zinc-400'">
-                    {{ p.inv_estado }}
-                  </span>
-                </td>
+              <tr v-for="p in pasesList" :key="p?.inv_id || Math.random()">
+                <template v-if="p && p.inv_id">
+                  <td>
+                    <div class="font-semibold text-xs text-[var(--text-primary)]">{{ p.inv_visitante_nombre }}</div>
+                    <div class="text-[11px] text-[var(--text-secondary)]">
+                      {{ p.inv_visitante_placa || 'Peatonal' }} · Anfitrión: {{ p.creador_nombre || p.anfitrion || 'Residente' }}
+                    </div>
+                  </td>
+                  <td>
+                    <span class="font-mono text-xs text-[var(--color-primary)] bg-[var(--bg-primary)] px-2 py-1 rounded border border-[var(--border-subtle)]">
+                      {{ p.inv_codigo_token }}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="text-[11px] text-[var(--text-secondary)]">Hasta: {{ p.inv_valido_hasta }}</div>
+                    <div class="text-[10px] text-[var(--text-muted)]">Usos: {{ p.inv_usos_realizados }} / {{ p.inv_usos_permitidos }}</div>
+                  </td>
+                  <td>
+                    <span class="tag-status" :class="p.inv_estado === 'ACTIVO' ? 'bg-green-500/20 text-green-400' : 'bg-zinc-500/20 text-zinc-400'">
+                      {{ p.inv_estado }}
+                    </span>
+                  </td>
+                </template>
               </tr>
             </tbody>
           </table>
@@ -1488,9 +1490,12 @@ const cargarPases = async () => {
   try {
     const res = await axios.get('/api/invitaciones', headersConfig);
     if (res.data.success) {
-      pasesList.value = res.data.data;
+      const raw = res.data.data;
+      pasesList.value = Array.isArray(raw) ? raw : (raw?.data || []);
     }
-  } catch (e) {}
+  } catch (e) {
+    pasesList.value = [];
+  }
 };
 
 const registrarIngreso = async () => {

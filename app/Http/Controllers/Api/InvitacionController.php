@@ -47,9 +47,11 @@ class InvitacionController extends Controller
             });
         }
 
+        $data = $request->boolean('paginate') ? $query->paginate(20) : $query->limit(50)->get();
+
         return response()->json([
             'success' => true,
-            'data' => $query->paginate(20)
+            'data' => $data
         ]);
     }
 
