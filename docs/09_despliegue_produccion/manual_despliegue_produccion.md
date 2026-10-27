@@ -1,152 +1,254 @@
-# Manual Maestro de Despliegue en Producción & Puesta en Marcha Inicial
+# Manual Maestro de Despliegue en Producción & Puesta en Marcha
 **Proyecto:** Residia SaaS • Plataforma Integral Multi-Urbanizaciones & Garita Inteligente  
 **Organización:** Robledal Connecting  
 **Versión de Lanzamiento:** 2.0.0 (Gold Master)  
-**Fecha:** 19 de Octubre de 2026  
-**Entorno de Destino:** Servidor Cloud VPS (Ubuntu 22.04 / 24.04 LTS, Debian 12 o Rocky Linux)  
+**Última Actualización:** 27 de Octubre de 2026 (Validado en Producción)  
+**Entorno Certificado:** Servidor Cloud VPS (Ubuntu Server 24.04 / 25 con PHP 8.4 / 8.5)  
 
 ---
 
-## 1. Requisitos Previos del Servidor Cloud
+## 1. Arquitectura y Requisitos del Servidor Cloud
 
-| Componente | Requisito Mínimo Recomendado |
+| Componente | Especificación Certificada en Producción |
 | :--- | :--- |
 | **CPU / RAM** | 2 vCPU / 4 GB RAM (8 GB recomendado para alta concurrencia) |
 | **Disco** | 40 GB SSD / NVMe |
-| **Sistema Operativo** | Ubuntu 22.04 LTS o 24.04 LTS |
-| **Motor Web** | Nginx 1.22+ (o Apache 2.4 con `mod_rewrite`) |
-| **PHP Runtime** | PHP 8.2 o 8.3 con extensiones: `php-fpm`, `php-pgsql`, `php-mbstring`, `php-xml`, `php-curl`, `php-zip`, `php-gd`, `php-bcmath` |
-| **Base de Datos** | PostgreSQL 16+ con extensiones `uuid-ossp` y `pgcrypto` |
-| **Node.js** | Node.js 18 LTS o 20 LTS + NPM |
-| **Gestores de Procesos** | Systemd (para colas de background) o Supervisor |
+| **Sistema Operativo** | Ubuntu Server 24.04 LTS o Ubuntu Server 25 |
+| **Motor Web** | Nginx 1.24+ / 1.28+ con soporte HTTP/2 y compresión Gzip |
+| **PHP Runtime** | PHP 8.4 o **PHP 8.5** con `php-fpm`, `pdo_pgsql`, `mbstring`, `xml`, `curl`, `zip`, `gd`, `bcmath`, `intl`, `redis`, `opcache` |
+| **Base de Datos** | PostgreSQL 16+ / 17+ con extensiones `uuid-ossp` y `pgcrypto` |
+| **Caché / MQ** | Redis Server 7+ |
+| **Node.js** | Node.js 20 LTS o 22 LTS + NPM |
+| **Procesos en Background** | Systemd (`residia-worker.service`) |
 
 ---
 
-## 2. Preparación Rápida del Sistema Operativo (Ubuntu/Debian)
+## 2. Preparación del Sistema Base & Dependencias
 
-Ejecutar en el servidor remoto como usuario `root` o con privilegios `sudo`:
+Conectarse como usuario con privilegios `sudo` o `root` en el VPS:
 
 ```bash
-# Actualizar repositorios
+# 2.1 Actualizar paquetes del sistema
 sudo apt update && sudo apt upgrade -y
 
-# Instalar Nginx, PostgreSQL, Git, Curl y Zip
-sudo apt install -y nginx postgresql postgresql-contrib git curl unzip
+# 2.2 Instalar herramientas de soporte y servidor web
+sudo apt install -y curl wget gnupg2 ca-certificates lsb-release apt-transport-https \
+                    software-properties-common git unzip ufw supervisor htop \
+                    nginx redis-server postgresql postgresql-contrib
 
-# Instalar PHP 8.2 y extensiones requeridas
-sudo apt install -y php8.2-fpm php8.2-pgsql php8.2-mbstring php8.2-xml php8.2-curl php8.2-zip php8.2-gd php8.2-bcmath
+# 2.3 Instalar PHP (versión 8.5 o 8.4) y módulos oficiales
+sudo apt install -y php-fpm php-cli php-common \
+                    php-pgsql php-mbstring php-xml php-curl \
+                    php-zip php-gd php-bcmath php-intl \
+                    php-redis php-opcache
 
-# Instalar Composer globalmente
+# 2.4 Instalar Composer v2 globalmente
 curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer
 
-# Instalar Node.js 20 LTS
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# 2.5 Instalar Node.js 22 LTS
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
 sudo apt install -y nodejs
 ```
 
 ---
 
-## 3. Descarga del Repositorio desde GitHub
+## 3. Configuración de Base de Datos PostgreSQL
+
+En producción, la base de datos debe contar con un **usuario dedicado** y permisos explícitos sobre el esquema `public`:
 
 ```bash
-# Ubicación estándar de proyectos web
+# 3.1 Crear usuario 'residia' con contraseña y otorgar propiedad
+sudo -u postgres psql << 'EOF'
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'residia') THEN
+        CREATE USER residia WITH PASSWORD 'Residia2026.*';
+    ELSE
+        ALTER USER residia WITH PASSWORD 'Residia2026.*';
+    END IF;
+END
+$$;
+
+CREATE DATABASE residia OWNER residia;
+ALTER DATABASE residia OWNER TO residia;
+GRANT ALL PRIVILEGES ON DATABASE residia TO residia;
+
+\c residia
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+ALTER SCHEMA public OWNER TO residia;
+GRANT ALL ON SCHEMA public TO residia;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO residia;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO residia;
+EOF
+```
+
+---
+
+## 4. Despliegue de Código & Variables de Entorno
+
+```bash
+# 4.1 Clonar la rama 'residia' en la ruta estándar
 sudo mkdir -p /var/www/residia
 sudo chown -R $USER:$USER /var/www/residia
-
-# Clonar la rama 'residia' del proyecto
 git clone -b residia https://github.com/vinnyvgs1-ctrl/residia.git /var/www/residia
 cd /var/www/residia
+
+# 4.2 Preparar archivo .env
+cp .env.example .env
+
+# 4.3 Configurar variables de base de datos en .env
+sed -i 's/^DB_CONNECTION=.*/DB_CONNECTION=pgsql/' .env
+sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' .env
+sed -i 's/^DB_PORT=.*/DB_PORT=5432/' .env
+sed -i 's/^DB_DATABASE=.*/DB_DATABASE=residia/' .env
+sed -i 's/^DB_USERNAME=.*/DB_USERNAME=residia/' .env
+sed -i 's/^DB_PASSWORD=.*/DB_PASSWORD=Residia2026.*/' .env
+sed -i 's/^APP_ENV=.*/APP_ENV=production/' .env
+sed -i 's/^APP_DEBUG=.*/APP_DEBUG=false/' .env
+
+# 4.4 Restaurar Snapshot Maestro Certificado v2.0
+PGPASSWORD="Residia2026.*" psql -h 127.0.0.1 -U residia -d residia -f database/backups/residia_release_v2_completo.sql
 ```
 
 ---
 
-## 4. Instalador Automatizado en 1-Paso (`install.sh`)
+## 5. Instalación de Paquetes PHP, Frontend & Claves Criptográficas
 
-El proyecto incluye un script de instalación desatendida en [`scripts/install/install.sh`](file:///Applications/XAMPP/xamppfiles/htdocs/residia/scripts/install/install.sh) que realiza de forma secuencial:
-1. Verificación de binarios de entorno.
-2. Generación y lectura del archivo de variables `.env`.
-3. Instalación de paquetes PHP de producción (`composer install --no-dev --optimize-autoloader`).
-4. Generación automática de `APP_KEY` y `JWT_SECRET`.
-5. Creación de la base de datos PostgreSQL, activación de extensiones `uuid-ossp`/`pgcrypto` y restauración íntegra del dump oficial [`database/backups/residia_release_v2_completo.sql`](file:///Applications/XAMPP/xamppfiles/htdocs/residia/database/backups/residia_release_v2_completo.sql).
-6. Instalación y compilación de assets Vite / Vue 3 (`npm run build`).
-7. Enlace simbólico de storage (`php artisan storage:link`) y precompilación de cachés (`config:cache`, `route:cache`, `view:cache`).
-
-### Para ejecutar el instalador:
+> [!IMPORTANT]
+> **Compatibilidad de Versión de PHP:**  
+> Si tu servidor cuenta con PHP 8.4 o PHP 8.5, debe agregarse el parámetro `--ignore-platform-req=php+` para permitir que Composer resuelva las librerías `lcobucci/clock` y `lcobucci/jwt` de forma transparente.
 
 ```bash
-# Otorgar permisos de ejecución
-chmod +x scripts/install/install.sh
+cd /var/www/residia
 
-# Ejecutar el instalador maestro
-./scripts/install/install.sh
+# 5.1 Dependencias PHP Backend
+composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-req=php+
+
+# 5.2 Generación de APP_KEY y JWT_SECRET
+php artisan key:generate --force
+php artisan jwt:secret --force
+
+# 5.3 Compilación de Assets con Vite y Vue 3
+npm install --prefer-offline
+npm run build
+
+# 5.4 Enlace simbólico de Storage público
+php artisan storage:link --force
 ```
 
 ---
 
-## 5. Configuración de Nginx & SSL (Certbot Let's Encrypt)
+## 6. Permisos de Archivos y Caché de Producción
 
-1. **Copiar plantilla de configuración de Nginx**:
+Para evitar fallos de lectura/escritura (`Permission denied`) tanto desde Nginx (`www-data`) como desde la terminal CLI:
+
+```bash
+# 6.1 Permisos de almacenamiento y caché
+sudo chown -R www-data:www-data /var/www/residia/storage /var/www/residia/bootstrap/cache
+sudo chmod -R 777 /var/www/residia/storage /var/www/residia/bootstrap/cache
+
+# 6.2 Precompilación de Cachés de Laravel
+php artisan optimize:clear
+php artisan optimize
+```
+
+---
+
+## 7. Configuración de Nginx & FastCGI Socket
+
+1. **Copiar plantilla VirtualHost**:
    ```bash
-   sudo cp scripts/install/nginx_residia.conf /etc/nginx/sites-available/residia
-   sudo ln -s /etc/nginx/sites-available/residia /etc/nginx/sites-enabled/
+   sudo cp /var/www/residia/scripts/install/nginx_residia.conf /etc/nginx/sites-available/residia
+   sudo ln -sf /etc/nginx/sites-available/residia /etc/nginx/sites-enabled/
    sudo rm -f /etc/nginx/sites-enabled/default
    ```
 
-2. **Editar dominio**:
-   Abrir `/etc/nginx/sites-available/residia` y modificar `server_name residia.tudominio.com;` con el dominio o subdominio asignado.
-
-3. **Verificar y reiniciar Nginx**:
+2. **Ajustar el Socket según la versión de PHP activa**:
+   Verificar el nombre exacto del socket con `ls /run/php/` (por ejemplo `php8.5-fpm.sock` o `php8.4-fpm.sock`):
    ```bash
-   sudo nginx -t
-   sudo systemctl restart nginx
+   # En Ubuntu 25 (PHP 8.5):
+   sudo sed -i 's/php8.4-fpm.sock/php8.5-fpm.sock/g' /etc/nginx/sites-available/residia
+   sudo sed -i 's/php8.2-fpm.sock/php8.5-fpm.sock/g' /etc/nginx/sites-available/residia
    ```
 
-4. **Instalar Certificado SSL Gratuito (HTTPS)**:
+3. **Verificar sintaxis y recargar Nginx**:
    ```bash
-   sudo apt install -y certbot python3-certbot-nginx
-   sudo certbot --nginx -d residia.tudominio.com
+   sudo nginx -t
+   sudo systemctl reload nginx
+   sudo systemctl restart php8.5-fpm
    ```
 
 ---
 
-## 6. Configuración del Worker Asíncrono de Auditoría (Systemd)
-
-Para procesar la bitácora forense de auditoría CDC y los webhooks de garita en segundo plano de manera continua:
+## 8. Seguridad Perimetral, Firewall UFW & Certificado SSL
 
 ```bash
-# Copiar archivo de servicio
-sudo cp scripts/install/residia-worker.service /etc/systemd/system/residia-worker.service
+# 8.1 Firewall del Sistema
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
 
-# Recargar demonios e iniciar servicio
-sudo systemctl daemon-reload
-sudo systemctl enable residia-worker
-sudo systemctl start residia-worker
-
-# Verificar estado
-sudo systemctl status residia-worker
+# 8.2 Certificado SSL Gratuito con Let's Encrypt (Certbot)
+# (Reemplazar 'tudominio.com' por el dominio real apuntando a la IP)
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d tudominio.com
 ```
 
 ---
 
-## 7. Credenciales Iniciales de Administración
+## 9. Servicio en Segundo Plano (Systemd Queue Worker)
 
-Una vez completada la instalación, la base de datos viene aprovisionada con el usuario maestro:
+Para la ejecución de notificaciones Web Push, eventos de garita y tareas programadas:
 
-- **URL de Ingreso:** `https://residia.tudominio.com/` o `http://IP_SERVIDOR/`
-- **Correo Electrónico:** `admin@robledal.com`
-- **Contraseña Inicial:** `Admin2026.*`
-- **Rol:** `Administrador / Superadmin` (Acceso irrestricto a todos los módulos: Garita, Alícuotas, Inmuebles, Áreas Sociales, Asambleas, Biometría ISAPI, Facility Management y Bitácora CDC).
+```bash
+# 9.1 Instalar servicio
+sudo cp /var/www/residia/scripts/install/residia-worker.service /etc/systemd/system/residia-worker.service
+
+# 9.2 Habilitar e iniciar
+sudo systemctl daemon-reload
+sudo systemctl enable --now residia-worker.service
+sudo systemctl status residia-worker.service
+```
 
 ---
 
-## 8. Verificación Post-Instalación
-1. Ingresar con las credenciales maestras.
-2. Ir a **Administración $\rightarrow$ Urbanizaciones** y confirmar que la sede activa sea *Urbanización Piloto Robledal* o crear la urbanización definitiva.
-3. Confirmar que el banner PWA aparezca al pie de página para permitir a los usuarios instalar la app en su dispositivo móvil.
-4. En **Garita Inteligente**, testear el sonido del chime y la simulación de lectura LPR / RFID.
-"""
+## 10. Credenciales Maestras de Acceso
 
-target = "docs/09_despliegue_produccion/manual_despliegue_produccion.md"
-with open(target, "w", encoding="utf-8") as f:
-    f.write(doc_content)
-print("Manual written successfully:", target)
+- **URL de Ingreso:** `https://tudominio.com` o `http://IP_SERVIDOR/`
+- **SuperAdmin:**
+  - **Usuario:** `admin@robledal.com`
+  - **Contraseña:** `Admin2026.*`
+- **Puesto de Guardia (Garita):**
+  - **Usuario:** `guardia1@robledal.com`
+  - **Contraseña:** `Guardia2026.*`
+
+---
+
+## 11. Guía de Resolución de Incidencias Comunes (Troubleshooting)
+
+### A. Error `502 Bad Gateway` en el navegador
+- **Causa:** Nginx apunta a un socket de PHP-FPM inexistente o el servicio FPM está detenido.
+- **Solución:**
+  1. Revisar los sockets disponibles: `ls -la /run/php/`.
+  2. Confirmar que el archivo `/etc/nginx/sites-available/residia` coincida con el socket activo (ej: `php8.5-fpm.sock`).
+  3. Reiniciar servicios: `sudo systemctl restart php8.5-fpm && sudo systemctl reload nginx`.
+
+### B. Error `Database file at path [.../database.sqlite] does not exist`
+- **Causa:** El archivo `.env` tenía `DB_CONNECTION=sqlite` al compilar la caché inicial.
+- **Solución:**
+  1. Asegurar en `.env`: `DB_CONNECTION=pgsql` y las credenciales del usuario `residia`.
+  2. Limpiar caché: `php artisan optimize:clear && php artisan optimize`.
+
+### C. Error `Permission denied` en `laravel.log` o `config.php`
+- **Causa:** Incompatibilidad de permisos entre el usuario de consola (`ubuntu`) y el del servidor web (`www-data`).
+- **Solución:**
+  ```bash
+  sudo chown -R www-data:www-data /var/www/residia/storage /var/www/residia/bootstrap/cache
+  sudo chmod -R 777 /var/www/residia/storage /var/www/residia/bootstrap/cache
+  ```
+
+### D. Error de Composer `requires php ~8.1.0 || ~8.2.0 -> your php version (8.5.x) does not satisfy`
+- **Causa:** Paquetes fijados en `composer.lock` para versiones previas.
+- **Solución:** Ejecutar Composer agregando el flag `--ignore-platform-req=php+`.
